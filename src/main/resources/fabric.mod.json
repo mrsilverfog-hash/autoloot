@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "autoloot",
+  "version": "${version}",
+  "name": "Autoloot",
+  "description": "Récupère automatiquement, dans les coffres et tonneaux de butin Lootr, les objets que tu possèdes déjà dans ton inventaire.",
+  "authors": [],
+  "contact": {},
+  "license": "CC0-1.0",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "net.tropimon.autoloot.AutolootClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.5",
+    "minecraft": "1.21.1",
+    "fabric-api": "*"
+  }
+}

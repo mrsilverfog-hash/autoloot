@@ -1,0 +1,7 @@
+{
+  "key.categories.autoloot": "Autoloot",
+  "key.autoloot.toggle": "Activer/désactiver l'autoloot",
+  "message.autoloot.enabled": "Autoloot activé",
+  "message.autoloot.disabled": "Autoloot désactivé",
+  "message.autoloot.grabbed": "Autoloot : %s objet(s) récupéré(s)"
+}

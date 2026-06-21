@@ -1,0 +1,7 @@
+{
+  "key.categories.autoloot": "Autoloot",
+  "key.autoloot.toggle": "Toggle autoloot",
+  "message.autoloot.enabled": "Autoloot enabled",
+  "message.autoloot.disabled": "Autoloot disabled",
+  "message.autoloot.grabbed": "Autoloot: %s item(s) grabbed"
+}
