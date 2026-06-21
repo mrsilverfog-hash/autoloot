@@ -51,7 +51,15 @@ public class AutolootClient implements ClientModInitializer {
                     world.getBlockState(hitResult.getBlockPos()).getBlock()
             );
             currentContainerIsLootr = blockId.getNamespace().equals(LOOTR_NAMESPACE)
-                    && (blockId.getPath().equals("chest") || blockId.getPath().equals("barrel"));
+                    && (blockId.getPath().equals("lootr_chest") || blockId.getPath().equals("lootr_barrel"));
+
+            // --- DEBUG TEMPORAIRE : à retirer une fois le souci identifié ---
+            player.sendMessage(
+                    Text.literal("[Autoloot debug] Bloc = " + blockId + " | Reconnu comme Lootr = " + currentContainerIsLootr),
+                    false
+            );
+            // --- FIN DEBUG ---
+
             return ActionResult.PASS;
         });
 
