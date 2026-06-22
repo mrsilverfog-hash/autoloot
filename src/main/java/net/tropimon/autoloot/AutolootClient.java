@@ -11,27 +11,33 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
 
-    // Nombre de ticks à attendre après l'ouverture avant de scanner le conteneur,
-    // pour laisser le temps au jeu de recevoir tout le contenu depuis le serveur
+    // Attente après l'ouverture avant de scanner, pour que le contenu soit bien synchronisé
     private static final int SCAN_DELAY_TICKS = 5;
+
+    // Nombre de clics envoyés au maximum par tick, pour ne pas surcharger la synchronisation
+    private static final int CLICKS_PER_TICK = 2;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
     private boolean currentContainerIsLootr = false;
-    private boolean alreadyGrabbedForThisOpen = false;
+    private boolean alreadyQueuedForThisOpen = false;
     private boolean screenJustOpened = false;
     private int ticksWaited = 0;
+
+    private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
 
     @Override
     public void onInitializeClient() {
@@ -70,39 +76,39 @@ public class AutolootClient implements ClientModInitializer {
         }
 
         if (!(client.currentScreen instanceof HandledScreen<?>)) {
-            alreadyGrabbedForThisOpen = false;
+            alreadyQueuedForThisOpen = false;
             screenJustOpened = false;
             ticksWaited = 0;
+            pendingGrabSlots.clear();
             return;
         }
 
-        if (alreadyGrabbedForThisOpen) {
-            return;
+        if (!alreadyQueuedForThisOpen) {
+            // On attend quelques ticks après l'ouverture pour être sûr que le contenu
+            // du coffre/tonneau est bien arrivé du serveur avant de le scanner
+            if (!screenJustOpened) {
+                screenJustOpened = true;
+                ticksWaited = 0;
+            } else {
+                ticksWaited++;
+                if (autolootEnabled && currentContainerIsLootr && ticksWaited >= SCAN_DELAY_TICKS) {
+                    queueMatchingItems(client, client.player.currentScreenHandler);
+                    alreadyQueuedForThisOpen = true;
+                }
+            }
         }
 
-        // On attend quelques ticks après l'ouverture pour être sûr que le contenu
-        // du coffre/tonneau est bien arrivé du serveur avant de le scanner
-        if (!screenJustOpened) {
-            screenJustOpened = true;
-            ticksWaited = 0;
-            return;
-        }
-
-        ticksWaited++;
-        if (autolootEnabled && currentContainerIsLootr && ticksWaited >= SCAN_DELAY_TICKS) {
-            grabMatchingItems(client, client.player.currentScreenHandler);
-            alreadyGrabbedForThisOpen = true;
-        }
+        // On envoie les clics petit à petit, quelques-uns par tick seulement
+        processGrabQueue(client);
     }
 
-    private void grabMatchingItems(MinecraftClient client, ScreenHandler handler) {
+    private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
             return;
         }
 
         int containerSize = containerHandler.getInventory().size();
         var playerInventory = client.player.getInventory();
-        int grabbed = 0;
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
@@ -119,21 +125,35 @@ public class AutolootClient implements ClientModInitializer {
             }
 
             if (alreadyOwned) {
-                // QUICK_MOVE = comportement shift-clic : remplit d'abord les piles existantes,
-                // puis va dans un slot vide s'il en reste pour le surplus
-                client.interactionManager.clickSlot(
-                        containerHandler.syncId,
-                        i,
-                        0,
-                        SlotActionType.QUICK_MOVE,
-                        client.player
-                );
-                grabbed++;
+                pendingGrabSlots.add(i);
             }
         }
 
-        if (grabbed > 0) {
-            client.player.sendMessage(Text.translatable("message.autoloot.grabbed", grabbed), true);
+        if (!pendingGrabSlots.isEmpty()) {
+            client.player.sendMessage(Text.translatable("message.autoloot.grabbed", pendingGrabSlots.size()), true);
+        }
+    }
+
+    private void processGrabQueue(MinecraftClient client) {
+        if (pendingGrabSlots.isEmpty()) {
+            return;
+        }
+        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) {
+            pendingGrabSlots.clear();
+            return;
+        }
+
+        int sent = 0;
+        while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
+            int slotIndex = pendingGrabSlots.poll();
+            client.interactionManager.clickSlot(
+                    containerHandler.syncId,
+                    slotIndex,
+                    0,
+                    SlotActionType.QUICK_MOVE,
+                    client.player
+            );
+            sent++;
         }
     }
 }
