@@ -5,22 +5,18 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.ItemStack;
 import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-
-import java.util.ArrayDeque;
-import java.util.Deque;
 
 public class AutolootClient implements ClientModInitializer {
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
-    private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
+    private boolean actionDone = false;
 
     @Override
     public void onInitializeClient() {
@@ -38,28 +34,30 @@ public class AutolootClient implements ClientModInitializer {
             client.player.sendMessage(Text.literal("[Autoloot] " + (autolootEnabled ? "Activé" : "Désactivé")), true);
         }
 
-        if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen 
-            && screen.getScreenHandler() instanceof GenericContainerScreenHandler container) {
+        if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen) {
             
-            // On scanne en permanence tant que le coffre est ouvert
-            // Si un item correspond, on l'ajoute à la file
-            var playerInv = client.player.getInventory();
-            for (int i = 0; i < container.getInventory().size(); i++) {
-                ItemStack stack = container.getSlot(i).getStack();
-                if (stack.isEmpty()) continue;
-
-                for (int j = 0; j < playerInv.size(); j++) {
-                    if (!playerInv.getStack(j).isEmpty() && playerInv.getStack(j).getItem() == stack.getItem()) {
-                        if (!pendingGrabSlots.contains(i)) pendingGrabSlots.add(i);
-                        break;
+            // Si le conteneur est ouvert et qu'on n'a pas encore cliqué sur Z
+            if (!actionDone && screen.getScreenHandler() instanceof GenericContainerScreenHandler) {
+                
+                // On cherche le bouton "Z" en testant tous les widgets de l'écran
+                for (var element : screen.children()) {
+                    if (element instanceof ClickableWidget widget) {
+                        // Le bouton Z est généralement le plus proche du coin haut-droit 
+                        // de la zone du conteneur. On cible une zone proche du coin droit.
+                        int x = widget.getX();
+                        int y = widget.getY();
+                        
+                        // Si le widget est dans la zone du bouton de tri (en haut à droite)
+                        if (x > screen.width / 2 + 100 && y < screen.height / 2 - 50) {
+                            widget.onClick(0, 0); // Simulation du clic physique
+                            actionDone = true;
+                            return;
+                        }
                     }
                 }
             }
-
-            // On vide la file de manière espacée (très rapide)
-            if (!pendingGrabSlots.isEmpty() && client.world.getTime() % 2 == 0) {
-                client.interactionManager.clickSlot(container.syncId, pendingGrabSlots.poll(), 0, SlotActionType.QUICK_MOVE, client.player);
-            }
+        } else if (client.currentScreen == null) {
+            actionDone = false;
         }
     }
 }
