@@ -114,12 +114,13 @@ public class AutolootClient implements ClientModInitializer {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) return;
 
         var playerInventory = client.player.getInventory();
+        // Utilisation de .getInventory().size() qui est la méthode correcte
+        int containerSize = containerHandler.getInventory().size();
+        
         List<Integer> prioritySlots = new ArrayList<>();
         List<Integer> otherSlots = new ArrayList<>();
 
-        for (int i = 0; i < 27; i++) {
-            if (i >= containerHandler.getSlotCount()) break;
-
+        for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
             if (containerStack.isEmpty()) continue;
 
@@ -133,7 +134,6 @@ public class AutolootClient implements ClientModInitializer {
             }
 
             if (alreadyOwned) {
-                // On met les slots 16 et 26 en priorité
                 if (i == 16 || i == 26) {
                     prioritySlots.add(i);
                 } else {
@@ -142,7 +142,6 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
         
-        // On ajoute d'abord les prioritaires, puis le reste dans la Deque
         pendingGrabSlots.addAll(prioritySlots);
         pendingGrabSlots.addAll(otherSlots);
     }
