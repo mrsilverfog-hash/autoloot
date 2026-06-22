@@ -26,17 +26,18 @@ import java.util.List;
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
-    private static final int SORT_DELAY = 10; // Temps pour laisser le tri se faire
-    private static final int SCAN_DELAY_TICKS = 20; 
-    private static final int CLICKS_PER_TICK = 1;
-    private static final int RETRY_DELAY_TICKS = 20;
+    
+    // Délais réduits pour la vitesse
+    private static final int SORT_DELAY_TICKS = 2; // Tri très rapide
+    private static final int SCAN_DELAY_TICKS = 5; // Scan déclenché plus vite après le tri
+    private static final int CLICKS_PER_TICK = 3;  // Plus d'items par tick
+    private static final int RETRY_DELAY_TICKS = 10; // Vérification plus rapide
     private static final int MAX_ATTEMPTS = 5;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
     private boolean currentContainerIsLootr = false;
-    private boolean alreadySorted = false;
-    private boolean alreadyQueuedForThisOpen = false;
+    private boolean actionDone = false;
     private int ticksWaited = 0;
 
     private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
@@ -57,18 +58,12 @@ public class AutolootClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.autoloot.toggle",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_UNKNOWN,
-                "key.categories.autoloot"
+                "key.autoloot.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.categories.autoloot"
         ));
 
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-            Identifier blockId = Registries.BLOCK.getId(
-                    world.getBlockState(hitResult.getBlockPos()).getBlock()
-            );
-            currentContainerIsLootr = blockId.getNamespace().equals(LOOTR_NAMESPACE)
-                    && (blockId.getPath().contains("lootr_chest") || blockId.getPath().contains("lootr_barrel"));
+            Identifier blockId = Registries.BLOCK.getId(world.getBlockState(hitResult.getBlockPos()).getBlock());
+            currentContainerIsLootr = blockId.getNamespace().equals(LOOTR_NAMESPACE);
             return ActionResult.PASS;
         });
 
@@ -78,42 +73,35 @@ public class AutolootClient implements ClientModInitializer {
     private void onClientTick(MinecraftClient client) {
         if (client.player == null) return;
 
-        while (toggleKey.wasPressed()) {
-            autolootEnabled = !autolootEnabled;
-            client.player.sendMessage(Text.translatable(autolootEnabled ? "message.autoloot.enabled" : "message.autoloot.disabled"), true);
-        }
-
         if (!(client.currentScreen instanceof HandledScreen<?>)) {
-            alreadySorted = false;
-            alreadyQueuedForThisOpen = false;
+            actionDone = false;
             ticksWaited = 0;
             pendingGrabSlots.clear();
             verifying.clear();
             return;
         }
 
-        if (autolootEnabled && currentContainerIsLootr) {
+        if (autolootEnabled && currentContainerIsLootr && !actionDone) {
             ticksWaited++;
 
-            // 1. Étape de tri automatique
-            if (!alreadySorted && ticksWaited >= SORT_DELAY) {
-                // Simulation d'un clic sur le bouton de tri (souvent présent via mods type InventoryProfilesNext)
-                // Note: La plupart des serveurs trient via un clic sur un bouton spécifique. 
-                // Ici, on déclenche une demande de tri standard via le protocole serveur.
-                client.interactionManager.clickSlot(client.player.currentScreenHandler.syncId, 0, 0, SlotActionType.QUICK_CRAFT, client.player);
-                alreadySorted = true;
+            // 1. Tri rapide
+            if (ticksWaited == SORT_DELAY_TICKS) {
+                long handle = client.getWindow().getHandle();
+                client.getKeyboard().onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_PRESS, 0);
+                client.getKeyboard().onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_RELEASE, 0);
             }
 
-            // 2. Étape de collecte après le tri
-            if (alreadySorted && !alreadyQueuedForThisOpen && ticksWaited >= SCAN_DELAY_TICKS) {
+            // 2. Scan rapide
+            if (ticksWaited >= SCAN_DELAY_TICKS) {
                 queueMatchingItems(client, client.player.currentScreenHandler);
-                alreadyQueuedForThisOpen = true;
+                actionDone = true;
             }
         }
 
-        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) return;
-        sendNewClicks(client, containerHandler);
-        checkVerifications(client, containerHandler);
+        if (client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler) {
+            sendNewClicks(client, containerHandler);
+            checkVerifications(client, containerHandler);
+        }
     }
 
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
@@ -156,14 +144,15 @@ public class AutolootClient implements ClientModInitializer {
             PendingVerify entry = it.next();
             entry.ticksLeft--;
             if (entry.ticksLeft > 0) continue;
-            if (containerHandler.getSlot(entry.slotIndex).getStack().isEmpty()) { it.remove(); continue; }
-
-            if (entry.attemptsLeft > 0) {
+            
+            if (containerHandler.getSlot(entry.slotIndex).getStack().isEmpty()) { 
+                it.remove(); 
+            } else if (entry.attemptsLeft > 0) {
                 entry.attemptsLeft--;
                 entry.ticksLeft = RETRY_DELAY_TICKS;
                 client.interactionManager.clickSlot(containerHandler.syncId, entry.slotIndex, 0, SlotActionType.QUICK_MOVE, client.player);
-            } else {
-                it.remove();
+            } else { 
+                it.remove(); 
             }
         }
     }
