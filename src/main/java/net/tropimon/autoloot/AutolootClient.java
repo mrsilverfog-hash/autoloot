@@ -27,11 +27,10 @@ public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
     
-    // Délais réduits pour la vitesse
-    private static final int SORT_DELAY_TICKS = 2; // Tri très rapide
-    private static final int SCAN_DELAY_TICKS = 5; // Scan déclenché plus vite après le tri
-    private static final int CLICKS_PER_TICK = 3;  // Plus d'items par tick
-    private static final int RETRY_DELAY_TICKS = 10; // Vérification plus rapide
+    private static final int SORT_DELAY_TICKS = 2;
+    private static final int SCAN_DELAY_TICKS = 5;
+    private static final int CLICKS_PER_TICK = 3;
+    private static final int RETRY_DELAY_TICKS = 10;
     private static final int MAX_ATTEMPTS = 5;
 
     private KeyBinding toggleKey;
@@ -84,14 +83,13 @@ public class AutolootClient implements ClientModInitializer {
         if (autolootEnabled && currentContainerIsLootr && !actionDone) {
             ticksWaited++;
 
-            // 1. Tri rapide
             if (ticksWaited == SORT_DELAY_TICKS) {
                 long handle = client.getWindow().getHandle();
-                client.getKeyboard().onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_PRESS, 0);
-                client.getKeyboard().onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_RELEASE, 0);
+                // Correction : accès direct au champ keyboard
+                client.keyboard.onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_PRESS, 0);
+                client.keyboard.onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_RELEASE, 0);
             }
 
-            // 2. Scan rapide
             if (ticksWaited >= SCAN_DELAY_TICKS) {
                 queueMatchingItems(client, client.player.currentScreenHandler);
                 actionDone = true;
