@@ -47,13 +47,12 @@ public class AutolootClient implements ClientModInitializer {
             if (className.contains("lootr")) {
                 if (state == 0) {
                     long handle = client.getWindow().getHandle();
-                    // Correction des accès : screen.x et screen.y sont publics
-                    int x = screen.x + screen.backgroundWidth - 30; 
-                    int y = screen.y + 10; 
                     
-                    GLFW.glfwSetCursorPos(handle, x, y);
-                    // Injection de clic bas niveau via GLFW pour contourner le `private access`
-                    GLFW.glfwPostEmptyEvent(); // Force le rafraîchissement
+                    // ACCÈS CORRIGÉ : Utilisation des méthodes pour obtenir les coordonnées
+                    int x = screen.getX() + screen.getBackgroundWidth() - 30; 
+                    int y = screen.getY() + 10; 
+                    
+                    GLFW.glfwSetCursorPos(handle, (double)x, (double)y);
                     
                     state = 1;
                     timer = 10; 
