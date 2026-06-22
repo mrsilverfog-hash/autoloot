@@ -26,10 +26,10 @@ import java.util.List;
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
-    private static final int SCAN_DELAY_TICKS = 5;
-    private static final int CLICKS_PER_TICK = 2;
-    private static final int RETRY_DELAY_TICKS = 20;
-    private static final int MAX_ATTEMPTS = 5;
+    private static final int SCAN_DELAY_TICKS = 10; // Un peu plus long pour laisser le temps au serveur
+    private static final int CLICKS_PER_TICK = 1; // Ralenti pour ne pas saturer le serveur
+    private static final int RETRY_DELAY_TICKS = 40; // Plus long pour Lootr
+    private static final int MAX_ATTEMPTS = 10;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
@@ -119,7 +119,6 @@ public class AutolootClient implements ClientModInitializer {
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
             
-            // LOG DE DÉBOGAGE
             if (i == 16 || i == 26) {
                 System.out.println("[DEBUG] Slot " + i + " contient : " + (containerStack.isEmpty() ? "VIDE" : containerStack.getItem().toString()));
             }
