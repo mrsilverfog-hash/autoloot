@@ -12,12 +12,15 @@ import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
 public class AutolootClient implements ClientModInitializer {
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
-    private int state = 0;
-    private int timer = 0;
+    private boolean processed = false;
 
     @Override
     public void onInitializeClient() {
@@ -33,51 +36,30 @@ public class AutolootClient implements ClientModInitializer {
         while (toggleKey.wasPressed()) {
             autolootEnabled = !autolootEnabled;
             client.player.sendMessage(Text.literal("[Autoloot] " + (autolootEnabled ? "Activé" : "Désactivé")), true);
-            state = 0;
+            processed = false;
         }
 
-        if (!autolootEnabled || client.currentScreen == null) {
-            if (client.currentScreen == null) state = 0;
-            return;
-        }
+        if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen 
+            && screen.getScreenHandler().getClass().getName().toLowerCase().contains("lootr") && !processed) {
 
-        if (client.currentScreen instanceof HandledScreen<?> screen) {
-            String className = screen.getScreenHandler().getClass().getName().toLowerCase();
-            
-            if (className.contains("lootr")) {
-                if (state == 0) {
-                    long handle = client.getWindow().getHandle();
-                    
-                    // ON UTILISE LA LARGEUR/HAUTEUR DE L'ÉCRAN POUR TROUVER LE CENTRE
-                    // Et on décale vers le haut à droite du GUI
-                    int centerX = client.getWindow().getScaledWidth() / 2;
-                    int centerY = client.getWindow().getScaledHeight() / 2;
-                    
-                    // Ces valeurs sont une estimation standard pour un coffre normal (176x166)
-                    int x = centerX + 80; 
-                    int y = centerY - 80; 
-                    
-                    GLFW.glfwSetCursorPos(handle, (double)x, (double)y);
-                    
-                    state = 1;
-                    timer = 10; 
-                } else if (state == 1) {
-                    if (--timer <= 0) state = 2;
-                } else if (state == 2) {
-                    var container = screen.getScreenHandler();
-                    var playerInv = client.player.getInventory();
-                    for (int i = 0; i < container.slots.size(); i++) {
-                        ItemStack stack = container.getSlot(i).getStack();
-                        if (stack.isEmpty() || i >= 27) continue; 
-                        for (int j = 0; j < playerInv.size(); j++) {
-                            if (!playerInv.getStack(j).isEmpty() && playerInv.getStack(j).getItem() == stack.getItem()) {
-                                client.interactionManager.clickSlot(container.syncId, i, 0, SlotActionType.QUICK_MOVE, client.player);
-                                return;
-                            }
-                        }
-                    }
+            var container = screen.getScreenHandler();
+            List<Integer> slots = new ArrayList<>();
+            for (int i = 0; i < 27; i++) if (!container.getSlot(i).getStack().isEmpty()) slots.add(i);
+
+            // Tri par ID d'item (Ordre logique)
+            slots.sort(Comparator.comparing(i -> container.getSlot(i).getStack().getItem().toString()));
+
+            // On effectue les échanges (swaps) pour trier physiquement dans le coffre
+            for (int i = 0; i < slots.size(); i++) {
+                if (i != slots.get(i)) {
+                    client.interactionManager.clickSlot(container.syncId, slots.get(i), 0, SlotActionType.PICKUP, client.player);
+                    client.interactionManager.clickSlot(container.syncId, i, 0, SlotActionType.PICKUP, client.player);
                 }
             }
+            
+            processed = true; // Tri terminé
+        } else if (client.currentScreen == null) {
+            processed = false;
         }
     }
 }
