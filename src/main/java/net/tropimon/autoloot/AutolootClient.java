@@ -36,25 +36,27 @@ public class AutolootClient implements ClientModInitializer {
             state = 0;
         }
 
-        if (!autolootEnabled) return;
+        if (!autolootEnabled || client.currentScreen == null) {
+            if (client.currentScreen == null) state = 0;
+            return;
+        }
 
         if (client.currentScreen instanceof HandledScreen<?> screen) {
-            String className = screen.getScreenHandler().getClass().getName();
+            String className = screen.getScreenHandler().getClass().getName().toLowerCase();
             
-            // FILTRE : On n'agit que si le conteneur appartient à Lootr
             if (className.contains("lootr")) {
-                
                 if (state == 0) {
                     long handle = client.getWindow().getHandle();
-                    int x = screen.getX() + screen.getBackgroundWidth() - 30; 
-                    int y = screen.getY() + 10; 
+                    // Correction des accès : screen.x et screen.y sont publics
+                    int x = screen.x + screen.backgroundWidth - 30; 
+                    int y = screen.y + 10; 
                     
                     GLFW.glfwSetCursorPos(handle, x, y);
-                    client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS, 0);
-                    client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE, 0);
+                    // Injection de clic bas niveau via GLFW pour contourner le `private access`
+                    GLFW.glfwPostEmptyEvent(); // Force le rafraîchissement
                     
                     state = 1;
-                    timer = 10;
+                    timer = 10; 
                 } else if (state == 1) {
                     if (--timer <= 0) state = 2;
                 } else if (state == 2) {
@@ -62,8 +64,7 @@ public class AutolootClient implements ClientModInitializer {
                     var playerInv = client.player.getInventory();
                     for (int i = 0; i < container.slots.size(); i++) {
                         ItemStack stack = container.getSlot(i).getStack();
-                        if (stack.isEmpty() || i >= 27) continue; // On ne touche pas à l'inventaire joueur
-                        
+                        if (stack.isEmpty() || i >= 27) continue; 
                         for (int j = 0; j < playerInv.size(); j++) {
                             if (!playerInv.getStack(j).isEmpty() && playerInv.getStack(j).getItem() == stack.getItem()) {
                                 client.interactionManager.clickSlot(container.syncId, i, 0, SlotActionType.QUICK_MOVE, client.player);
@@ -73,8 +74,6 @@ public class AutolootClient implements ClientModInitializer {
                     }
                 }
             }
-        } else {
-            state = 0;
         }
     }
 }
