@@ -15,11 +15,24 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.ArrayList;
 
 public class AutolootClient implements ClientModInitializer {
+
+    // Classe statique placée ici pour être visible partout
+    public static class PendingVerify {
+        final int slotIndex;
+        int ticksLeft;
+        int attemptsLeft;
+
+        PendingVerify(int slotIndex) {
+            this.slotIndex = slotIndex;
+            this.ticksLeft = 10;
+            this.attemptsLeft = 5;
+        }
+    }
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
@@ -54,18 +67,14 @@ public class AutolootClient implements ClientModInitializer {
         if (autolootEnabled && screen.getScreenHandler() instanceof GenericContainerScreenHandler container) {
             if (!actionDone) {
                 ticksWaited++;
-                
-                // Recherche automatique du bouton de tri dans la liste des widgets de l'écran
                 if (ticksWaited == 2) {
                     for (ClickableWidget widget : screen.children().stream().filter(w -> w instanceof ClickableWidget).map(w -> (ClickableWidget) w).toList()) {
-                        String name = widget.getMessage().getString();
-                        if (name.contains("Sort Inventory")) {
-                            widget.onClick(0, 0); // Clique sur le bouton trouvé
+                        if (widget.getMessage().getString().contains("Sort Inventory")) {
+                            widget.onClick(0, 0);
                             break;
                         }
                     }
                 }
-                
                 if (ticksWaited >= 10) {
                     queueMatchingItems(client, container);
                     actionDone = true;
