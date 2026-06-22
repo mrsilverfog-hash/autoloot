@@ -11,7 +11,6 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
@@ -19,18 +18,17 @@ import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.Iterator;
-import java.util.List;
 
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
+
+    // Attente après l'ouverture avant de scanner, pour que le contenu soit bien synchronisé
     private static final int SCAN_DELAY_TICKS = 5;
-    private static final int CLICKS_PER_TICK = 2;
-    private static final int VERIFY_DELAY_TICKS = 4;
-    private static final int MAX_ATTEMPTS = 4;
+
+    // Nombre d'objets traités au maximum par tick (chacun = 2 clics : prendre + poser)
+    private static final int GRABS_PER_TICK = 2;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
@@ -40,19 +38,6 @@ public class AutolootClient implements ClientModInitializer {
     private int ticksWaited = 0;
 
     private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
-    private final List<PendingVerify> verifying = new ArrayList<>();
-
-    private static class PendingVerify {
-        final int slotIndex;
-        int ticksLeft;
-        int attemptsLeft;
-
-        PendingVerify(int slotIndex) {
-            this.slotIndex = slotIndex;
-            this.ticksLeft = VERIFY_DELAY_TICKS;
-            this.attemptsLeft = MAX_ATTEMPTS;
-        }
-    }
 
     @Override
     public void onInitializeClient() {
@@ -95,7 +80,6 @@ public class AutolootClient implements ClientModInitializer {
             screenJustOpened = false;
             ticksWaited = 0;
             pendingGrabSlots.clear();
-            verifying.clear();
             return;
         }
 
@@ -116,8 +100,7 @@ public class AutolootClient implements ClientModInitializer {
             return;
         }
 
-        sendNewClicks(client, containerHandler);
-        checkVerifications(client, containerHandler);
+        processGrabQueue(client, containerHandler);
     }
 
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
@@ -152,58 +135,63 @@ public class AutolootClient implements ClientModInitializer {
         }
     }
 
-    private void sendNewClicks(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
-        int sent = 0;
-        while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
+    private void processGrabQueue(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
+        int done = 0;
+        while (!pendingGrabSlots.isEmpty() && done < GRABS_PER_TICK) {
             int slotIndex = pendingGrabSlots.poll();
-
-            // --- DEBUG TEMPORAIRE ---
-            Slot slotObj = containerHandler.getSlot(slotIndex);
-            client.player.sendMessage(
-                    Text.literal("[Autoloot debug] index liste=" + slotIndex
-                            + " | slot.id=" + slotObj.id
-                            + " | egal=" + (slotObj.id == slotIndex)),
-                    false
-            );
-            // --- FIN DEBUG ---
-
-            client.interactionManager.clickSlot(
-                    containerHandler.syncId, slotObj.id, 0, SlotActionType.QUICK_MOVE, client.player
-            );
-            verifying.add(new PendingVerify(slotIndex));
-            sent++;
+            transferViaPickup(client, containerHandler, slotIndex);
+            done++;
         }
     }
 
-    private void checkVerifications(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
-        Iterator<PendingVerify> it = verifying.iterator();
-        while (it.hasNext()) {
-            PendingVerify entry = it.next();
-            entry.ticksLeft--;
-            if (entry.ticksLeft > 0) {
-                continue;
-            }
+    // Transfère un objet du coffre vers l'inventaire en 2 clics simples
+    // (prendre, puis poser), exactement comme le ferait un tri manuel,
+    // plutôt qu'un shift-clic (QUICK_MOVE) qui pose problème sur certains slots.
+    private void transferViaPickup(MinecraftClient client, GenericContainerScreenHandler containerHandler, int containerSlotIndex) {
+        ItemStack stack = containerHandler.getSlot(containerSlotIndex).getStack();
+        if (stack.isEmpty()) {
+            return;
+        }
 
-            ItemStack stillThere = containerHandler.getSlot(entry.slotIndex).getStack();
-            if (stillThere.isEmpty()) {
-                it.remove();
-                continue;
-            }
+        // Étape 1 : on prend l'objet du coffre (il va sur le curseur)
+        client.interactionManager.clickSlot(
+                containerHandler.syncId, containerSlotIndex, 0, SlotActionType.PICKUP, client.player
+        );
 
-            if (entry.attemptsLeft > 0) {
-                entry.attemptsLeft--;
-                entry.ticksLeft = VERIFY_DELAY_TICKS;
-                Slot slotObj = containerHandler.getSlot(entry.slotIndex);
-                client.interactionManager.clickSlot(
-                        containerHandler.syncId, slotObj.id, 0, SlotActionType.QUICK_MOVE, client.player
-                );
-            } else {
-                client.player.sendMessage(
-                        Text.literal("[Autoloot] Impossible de récupérer le slot " + entry.slotIndex + " après plusieurs essais"),
-                        false
-                );
-                it.remove();
+        int containerSize = containerHandler.getInventory().size();
+        int totalSlots = containerHandler.slots.size();
+
+        // Étape 2a : on cherche d'abord une pile déjà existante du même objet, avec de la place
+        Integer targetSlot = null;
+        for (int i = containerSize; i < totalSlots; i++) {
+            ItemStack invStack = containerHandler.getSlot(i).getStack();
+            if (!invStack.isEmpty() && invStack.getItem() == stack.getItem()
+                    && invStack.getCount() < invStack.getMaxCount()) {
+                targetSlot = i;
+                break;
             }
+        }
+
+        // Étape 2b : sinon, un slot vide
+        if (targetSlot == null) {
+            for (int i = containerSize; i < totalSlots; i++) {
+                if (containerHandler.getSlot(i).getStack().isEmpty()) {
+                    targetSlot = i;
+                    break;
+                }
+            }
+        }
+
+        if (targetSlot != null) {
+            // On pose l'objet dans l'inventaire
+            client.interactionManager.clickSlot(
+                    containerHandler.syncId, targetSlot, 0, SlotActionType.PICKUP, client.player
+            );
+        } else {
+            // Pas de place : on remet l'objet là où on l'a pris
+            client.interactionManager.clickSlot(
+                    containerHandler.syncId, containerSlotIndex, 0, SlotActionType.PICKUP, client.player
+            );
         }
     }
 }
