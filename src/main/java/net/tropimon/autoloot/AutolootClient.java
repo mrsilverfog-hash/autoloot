@@ -56,8 +56,12 @@ public class AutolootClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Remplacez GLFW_KEY_V par votre touche préférée
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.autoloot.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.categories.autoloot"
+                "key.autoloot.toggle",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_V, 
+                "key.categories.autoloot"
         ));
 
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
@@ -72,6 +76,12 @@ public class AutolootClient implements ClientModInitializer {
     private void onClientTick(MinecraftClient client) {
         if (client.player == null) return;
 
+        // Gestion de l'activation avec message à l'écran
+        while (toggleKey.wasPressed()) {
+            autolootEnabled = !autolootEnabled;
+            client.player.sendMessage(Text.literal("[Autoloot] " + (autolootEnabled ? "Activé" : "Désactivé")), true);
+        }
+
         if (!(client.currentScreen instanceof HandledScreen<?>)) {
             actionDone = false;
             ticksWaited = 0;
@@ -85,7 +95,6 @@ public class AutolootClient implements ClientModInitializer {
 
             if (ticksWaited == SORT_DELAY_TICKS) {
                 long handle = client.getWindow().getHandle();
-                // Correction : accès direct au champ keyboard
                 client.keyboard.onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_PRESS, 0);
                 client.keyboard.onKey(handle, GLFW.GLFW_KEY_R, 0, GLFW.GLFW_RELEASE, 0);
             }
