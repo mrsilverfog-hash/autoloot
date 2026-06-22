@@ -23,11 +23,7 @@ import java.util.Deque;
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
-
-    // Attente après l'ouverture avant de scanner, pour que le contenu soit bien synchronisé
     private static final int SCAN_DELAY_TICKS = 5;
-
-    // Nombre de clics envoyés au maximum par tick, pour ne pas surcharger la synchronisation
     private static final int CLICKS_PER_TICK = 2;
 
     private KeyBinding toggleKey;
@@ -84,8 +80,6 @@ public class AutolootClient implements ClientModInitializer {
         }
 
         if (!alreadyQueuedForThisOpen) {
-            // On attend quelques ticks après l'ouverture pour être sûr que le contenu
-            // du coffre/tonneau est bien arrivé du serveur avant de le scanner
             if (!screenJustOpened) {
                 screenJustOpened = true;
                 ticksWaited = 0;
@@ -98,12 +92,12 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
 
-        // On envoie les clics petit à petit, quelques-uns par tick seulement
         processGrabQueue(client);
     }
 
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
+            client.player.sendMessage(Text.literal("[Autoloot debug] handler = " + handler.getClass().getSimpleName()), false);
             return;
         }
 
@@ -129,6 +123,13 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
 
+        // --- DEBUG TEMPORAIRE ---
+        client.player.sendMessage(
+                Text.literal("[Autoloot debug] containerSize=" + containerSize + " | slots en file=" + pendingGrabSlots),
+                false
+        );
+        // --- FIN DEBUG ---
+
         if (!pendingGrabSlots.isEmpty()) {
             client.player.sendMessage(Text.translatable("message.autoloot.grabbed", pendingGrabSlots.size()), true);
         }
@@ -146,6 +147,15 @@ public class AutolootClient implements ClientModInitializer {
         int sent = 0;
         while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
             int slotIndex = pendingGrabSlots.poll();
+
+            // --- DEBUG TEMPORAIRE ---
+            ItemStack beforeClick = containerHandler.getSlot(slotIndex).getStack();
+            client.player.sendMessage(
+                    Text.literal("[Autoloot debug] Clic envoyé sur slot " + slotIndex + " contenant " + beforeClick.getCount() + "x " + beforeClick.getItem()),
+                    false
+            );
+            // --- FIN DEBUG ---
+
             client.interactionManager.clickSlot(
                     containerHandler.syncId,
                     slotIndex,
