@@ -18,13 +18,18 @@ import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Iterator;
+import java.util.List;
 
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
     private static final int SCAN_DELAY_TICKS = 5;
     private static final int CLICKS_PER_TICK = 2;
+    private static final int VERIFY_DELAY_TICKS = 4;
+    private static final int MAX_ATTEMPTS = 4;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
@@ -34,6 +39,19 @@ public class AutolootClient implements ClientModInitializer {
     private int ticksWaited = 0;
 
     private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
+    private final List<PendingVerify> verifying = new ArrayList<>();
+
+    private static class PendingVerify {
+        final int slotIndex;
+        int ticksLeft;
+        int attemptsLeft;
+
+        PendingVerify(int slotIndex) {
+            this.slotIndex = slotIndex;
+            this.ticksLeft = VERIFY_DELAY_TICKS;
+            this.attemptsLeft = MAX_ATTEMPTS;
+        }
+    }
 
     @Override
     public void onInitializeClient() {
@@ -76,6 +94,7 @@ public class AutolootClient implements ClientModInitializer {
             screenJustOpened = false;
             ticksWaited = 0;
             pendingGrabSlots.clear();
+            verifying.clear();
             return;
         }
 
@@ -92,12 +111,16 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
 
-        processGrabQueue(client);
+        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) {
+            return;
+        }
+
+        sendNewClicks(client, containerHandler);
+        checkVerifications(client, containerHandler);
     }
 
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
-            client.player.sendMessage(Text.literal("[Autoloot debug] handler = " + handler.getClass().getSimpleName()), false);
             return;
         }
 
@@ -123,47 +146,63 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
 
-        // --- DEBUG TEMPORAIRE ---
-        client.player.sendMessage(
-                Text.literal("[Autoloot debug] containerSize=" + containerSize + " | slots en file=" + pendingGrabSlots),
-                false
-        );
-        // --- FIN DEBUG ---
-
         if (!pendingGrabSlots.isEmpty()) {
             client.player.sendMessage(Text.translatable("message.autoloot.grabbed", pendingGrabSlots.size()), true);
         }
     }
 
-    private void processGrabQueue(MinecraftClient client) {
-        if (pendingGrabSlots.isEmpty()) {
-            return;
-        }
-        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) {
-            pendingGrabSlots.clear();
-            return;
-        }
-
+    private void sendNewClicks(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
         int sent = 0;
         while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
             int slotIndex = pendingGrabSlots.poll();
 
             // --- DEBUG TEMPORAIRE ---
-            ItemStack beforeClick = containerHandler.getSlot(slotIndex).getStack();
+            net.minecraft.screen.slot.Slot slotObj = containerHandler.getSlot(slotIndex);
             client.player.sendMessage(
-                    Text.literal("[Autoloot debug] Clic envoyé sur slot " + slotIndex + " contenant " + beforeClick.getCount() + "x " + beforeClick.getItem()),
+                    Text.literal("[Autoloot debug] Slot " + slotIndex
+                            + " | classe=" + slotObj.getClass().getName()
+                            + " | inventory=" + slotObj.inventory.getClass().getName()
+                            + " | invSlot index=" + slotObj.getIndex()),
                     false
             );
             // --- FIN DEBUG ---
 
             client.interactionManager.clickSlot(
-                    containerHandler.syncId,
-                    slotIndex,
-                    0,
-                    SlotActionType.QUICK_MOVE,
-                    client.player
+                    containerHandler.syncId, slotIndex, 0, SlotActionType.QUICK_MOVE, client.player
             );
+            verifying.add(new PendingVerify(slotIndex));
             sent++;
+        }
+    }
+
+    private void checkVerifications(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
+        Iterator<PendingVerify> it = verifying.iterator();
+        while (it.hasNext()) {
+            PendingVerify entry = it.next();
+            entry.ticksLeft--;
+            if (entry.ticksLeft > 0) {
+                continue;
+            }
+
+            ItemStack stillThere = containerHandler.getSlot(entry.slotIndex).getStack();
+            if (stillThere.isEmpty()) {
+                it.remove();
+                continue;
+            }
+
+            if (entry.attemptsLeft > 0) {
+                entry.attemptsLeft--;
+                entry.ticksLeft = VERIFY_DELAY_TICKS;
+                client.interactionManager.clickSlot(
+                        containerHandler.syncId, entry.slotIndex, 0, SlotActionType.QUICK_MOVE, client.player
+                );
+            } else {
+                client.player.sendMessage(
+                        Text.literal("[Autoloot] Impossible de récupérer le slot " + entry.slotIndex + " après plusieurs essais"),
+                        false
+                );
+                it.remove();
+            }
         }
     }
 }
