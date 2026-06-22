@@ -121,9 +121,14 @@ public class AutolootClient implements ClientModInitializer {
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
+            
+            // LOG DE DÉBOGAGE
+            if (i == 16 || i == 26) {
+                System.out.println("[DEBUG] Slot " + i + " contient : " + (containerStack.isEmpty() ? "VIDE" : containerStack.getItem().toString()));
+            }
+
             if (containerStack.isEmpty()) continue;
 
-            // FORÇAGE : Si c'est le slot 16 ou 26, on les prend en priorité absolue
             if (i == 16 || i == 26) {
                 prioritySlots.add(i);
                 continue;
@@ -143,7 +148,6 @@ public class AutolootClient implements ClientModInitializer {
             }
         }
         
-        // Priorité : 16 et 26, puis le reste
         pendingGrabSlots.addAll(prioritySlots);
         pendingGrabSlots.addAll(otherSlots);
     }
@@ -176,7 +180,6 @@ public class AutolootClient implements ClientModInitializer {
                 entry.ticksLeft = RETRY_DELAY_TICKS;
                 client.interactionManager.clickSlot(containerHandler.syncId, entry.slotIndex, 0, SlotActionType.QUICK_MOVE, client.player);
             } else {
-                client.player.sendMessage(Text.literal("[Autoloot] Impossible de récupérer le slot " + entry.slotIndex), false);
                 it.remove();
             }
         }
