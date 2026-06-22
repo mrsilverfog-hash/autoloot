@@ -148,7 +148,7 @@ public class AutolootClient implements ClientModInitializer {
     // (prendre, puis poser), exactement comme le ferait un tri manuel,
     // plutôt qu'un shift-clic (QUICK_MOVE) qui pose problème sur certains slots.
     private void transferViaPickup(MinecraftClient client, GenericContainerScreenHandler containerHandler, int containerSlotIndex) {
-        ItemStack stack = containerHandler.getSlot(containerSlotIndex).getStack();
+        ItemStack stack = containerHandler.getSlot(containerSlotIndex).getStack().copy();
         if (stack.isEmpty()) {
             return;
         }
