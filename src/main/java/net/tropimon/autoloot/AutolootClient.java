@@ -52,14 +52,6 @@ public class AutolootClient implements ClientModInitializer {
             );
             currentContainerIsLootr = blockId.getNamespace().equals(LOOTR_NAMESPACE)
                     && (blockId.getPath().equals("lootr_chest") || blockId.getPath().equals("lootr_barrel"));
-
-            // --- DEBUG TEMPORAIRE ---
-            player.sendMessage(
-                    Text.literal("[Autoloot debug] Bloc = " + blockId + " | Reconnu comme Lootr = " + currentContainerIsLootr),
-                    false
-            );
-            // --- FIN DEBUG ---
-
             return ActionResult.PASS;
         });
 
@@ -91,9 +83,6 @@ public class AutolootClient implements ClientModInitializer {
         // Si l'option est activée et qu'on vient d'ouvrir un coffre/tonneau Lootr,
         // on récupère automatiquement les objets déjà possédés (une seule fois par ouverture)
         if (autolootEnabled && currentContainerIsLootr && !alreadyGrabbedForThisOpen) {
-            // --- DEBUG TEMPORAIRE ---
-            client.player.sendMessage(Text.literal("[Autoloot debug] Tentative de récupération en cours..."), false);
-            // --- FIN DEBUG ---
             grabMatchingItems(client, client.player.currentScreenHandler);
             alreadyGrabbedForThisOpen = true;
         }
@@ -101,26 +90,18 @@ public class AutolootClient implements ClientModInitializer {
 
     private void grabMatchingItems(MinecraftClient client, ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
-            // --- DEBUG TEMPORAIRE ---
-            client.player.sendMessage(
-                    Text.literal("[Autoloot debug] Le menu ouvert n'est PAS un GenericContainerScreenHandler : " + handler.getClass().getSimpleName()),
-                    false
-            );
-            // --- FIN DEBUG ---
             return;
         }
 
         int containerSize = containerHandler.getInventory().size();
         var playerInventory = client.player.getInventory();
         int grabbed = 0;
-        int nonEmptySlots = 0;
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
             if (containerStack.isEmpty()) {
                 continue;
             }
-            nonEmptySlots++;
 
             boolean alreadyOwned = false;
             for (ItemStack invStack : playerInventory.main) {
@@ -142,15 +123,6 @@ public class AutolootClient implements ClientModInitializer {
                 grabbed++;
             }
         }
-
-        // --- DEBUG TEMPORAIRE ---
-        client.player.sendMessage(
-                Text.literal("[Autoloot debug] Taille conteneur=" + containerSize
-                        + " | slots non vides=" + nonEmptySlots
-                        + " | objets récupérés=" + grabbed),
-                false
-        );
-        // --- FIN DEBUG ---
 
         if (grabbed > 0) {
             client.player.sendMessage(Text.translatable("message.autoloot.grabbed", grabbed), true);
