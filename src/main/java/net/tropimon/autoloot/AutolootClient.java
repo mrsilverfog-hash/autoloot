@@ -115,9 +115,6 @@ public class AutolootClient implements ClientModInitializer {
 
         var playerInventory = client.player.getInventory();
         int containerSize = containerHandler.getInventory().size();
-        
-        List<Integer> prioritySlots = new ArrayList<>();
-        List<Integer> otherSlots = new ArrayList<>();
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
@@ -129,11 +126,6 @@ public class AutolootClient implements ClientModInitializer {
 
             if (containerStack.isEmpty()) continue;
 
-            if (i == 16 || i == 26) {
-                prioritySlots.add(i);
-                continue;
-            }
-
             boolean alreadyOwned = false;
             for (int j = 0; j < playerInventory.size(); j++) {
                 ItemStack invStack = playerInventory.getStack(j);
@@ -143,13 +135,10 @@ public class AutolootClient implements ClientModInitializer {
                 }
             }
 
-            if (alreadyOwned) {
-                otherSlots.add(i);
+            if (alreadyOwned && !pendingGrabSlots.contains(i)) {
+                pendingGrabSlots.add(i);
             }
         }
-        
-        pendingGrabSlots.addAll(prioritySlots);
-        pendingGrabSlots.addAll(otherSlots);
     }
 
     private void sendNewClicks(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
