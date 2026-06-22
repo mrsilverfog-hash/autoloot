@@ -7,9 +7,15 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.item.ItemStack;
 import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public class AutolootClient implements ClientModInitializer {
 
@@ -34,21 +40,34 @@ public class AutolootClient implements ClientModInitializer {
         }
 
         if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen 
-            && screen.getScreenHandler() instanceof GenericContainerScreenHandler && !actionDone) {
-            
-            // Calcul de la position du bouton Z basé sur l'image
-            // Le bouton Z est dans le coin haut-droit de l'inventaire
-            int x = screen.getX() + screen.getBackgroundWidth() - 30; 
-            int y = screen.getY() + 5; 
+            && screen.getScreenHandler() instanceof GenericContainerScreenHandler container && !actionDone) {
 
-            // Déplacement du curseur réel
-            long handle = client.getWindow().getHandle();
-            GLFW.glfwSetCursorPos(handle, x, y);
+            // 1. On récupère les items du coffre
+            List<ItemStack> chestItems = new ArrayList<>();
+            for (int i = 0; i < container.getInventory().size(); i++) {
+                ItemStack stack = container.getSlot(i).getStack();
+                if (!stack.isEmpty()) chestItems.add(stack);
+            }
 
-            // Simulation d'un vrai clic souris
-            client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS, 0);
-            client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE, 0);
-            
+            // 2. Tri "maison" par nom d'item (pour que le serveur voie un ordre logique)
+            chestItems.sort(Comparator.comparing(s -> s.getItem().getName().getString()));
+
+            // 3. Aspiration : si l'item existe dans votre inventaire, on le prend
+            var playerInv = client.player.getInventory();
+            for (ItemStack chestStack : chestItems) {
+                for (int j = 0; j < playerInv.size(); j++) {
+                    if (!playerInv.getStack(j).isEmpty() && playerInv.getStack(j).getItem() == chestStack.getItem()) {
+                        // On trouve le slot original de l'item pour le cliquer
+                        for (int k = 0; k < container.getInventory().size(); k++) {
+                            if (container.getSlot(k).getStack() == chestStack) {
+                                client.interactionManager.clickSlot(container.syncId, k, 0, SlotActionType.QUICK_MOVE, client.player);
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
             actionDone = true;
         } else if (client.currentScreen == null) {
             actionDone = false;
