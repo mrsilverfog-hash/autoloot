@@ -5,7 +5,6 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.screen.GenericContainerScreenHandler;
@@ -34,28 +33,23 @@ public class AutolootClient implements ClientModInitializer {
             client.player.sendMessage(Text.literal("[Autoloot] " + (autolootEnabled ? "Activé" : "Désactivé")), true);
         }
 
-        if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen) {
+        if (autolootEnabled && client.currentScreen instanceof HandledScreen<?> screen 
+            && screen.getScreenHandler() instanceof GenericContainerScreenHandler && !actionDone) {
             
-            // Si le conteneur est ouvert et qu'on n'a pas encore cliqué sur Z
-            if (!actionDone && screen.getScreenHandler() instanceof GenericContainerScreenHandler) {
-                
-                // On cherche le bouton "Z" en testant tous les widgets de l'écran
-                for (var element : screen.children()) {
-                    if (element instanceof ClickableWidget widget) {
-                        // Le bouton Z est généralement le plus proche du coin haut-droit 
-                        // de la zone du conteneur. On cible une zone proche du coin droit.
-                        int x = widget.getX();
-                        int y = widget.getY();
-                        
-                        // Si le widget est dans la zone du bouton de tri (en haut à droite)
-                        if (x > screen.width / 2 + 100 && y < screen.height / 2 - 50) {
-                            widget.onClick(0, 0); // Simulation du clic physique
-                            actionDone = true;
-                            return;
-                        }
-                    }
-                }
-            }
+            // Calcul de la position du bouton Z basé sur l'image
+            // Le bouton Z est dans le coin haut-droit de l'inventaire
+            int x = screen.getX() + screen.getBackgroundWidth() - 30; 
+            int y = screen.getY() + 5; 
+
+            // Déplacement du curseur réel
+            long handle = client.getWindow().getHandle();
+            GLFW.glfwSetCursorPos(handle, x, y);
+
+            // Simulation d'un vrai clic souris
+            client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS, 0);
+            client.mouse.onMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE, 0);
+            
+            actionDone = true;
         } else if (client.currentScreen == null) {
             actionDone = false;
         }
