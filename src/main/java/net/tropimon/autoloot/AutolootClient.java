@@ -163,11 +163,13 @@ public class AutolootClient implements ClientModInitializer {
 
         // Étape 2a : on cherche d'abord une pile déjà existante du même objet, avec de la place
         Integer targetSlot = null;
+        boolean isExistingStack = false;
         for (int i = containerSize; i < totalSlots; i++) {
             ItemStack invStack = containerHandler.getSlot(i).getStack();
             if (!invStack.isEmpty() && invStack.getItem() == stack.getItem()
                     && invStack.getCount() < invStack.getMaxCount()) {
                 targetSlot = i;
+                isExistingStack = true;
                 break;
             }
         }
@@ -187,6 +189,15 @@ public class AutolootClient implements ClientModInitializer {
             client.interactionManager.clickSlot(
                     containerHandler.syncId, targetSlot, 0, SlotActionType.PICKUP, client.player
             );
+            // --- DEBUG TEMPORAIRE ---
+            ItemStack after = containerHandler.getSlot(targetSlot).getStack();
+            client.player.sendMessage(
+                    Text.literal("[Autoloot debug] " + stack.getItem() + " -> slot " + targetSlot
+                            + " | pile existante=" + isExistingStack
+                            + " | total apres=" + after.getCount()),
+                    false
+            );
+            // --- FIN DEBUG ---
         } else {
             // Pas de place : on remet l'objet là où on l'a pris
             client.interactionManager.clickSlot(
