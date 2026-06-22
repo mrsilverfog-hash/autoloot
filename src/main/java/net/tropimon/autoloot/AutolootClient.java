@@ -11,17 +11,22 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 public class AutolootClient implements ClientModInitializer {
 
     // Le namespace utilisé par le mod Lootr pour ses coffres/tonneaux de butin
     private static final String LOOTR_NAMESPACE = "lootr";
+
+    // Nombre de clics envoyés au maximum par tick, pour éviter de désynchroniser le serveur
+    private static final int CLICKS_PER_TICK = 2;
 
     private KeyBinding toggleKey;
 
@@ -31,8 +36,11 @@ public class AutolootClient implements ClientModInitializer {
     // Vrai si le dernier conteneur cliqué par le joueur est un coffre/tonneau Lootr
     private boolean currentContainerIsLootr = false;
 
-    // Empêche de relancer la récupération à chaque tick pendant qu'un même coffre reste ouvert
-    private boolean alreadyGrabbedForThisOpen = false;
+    // Empêche de relancer la détection à chaque tick pendant qu'un même coffre reste ouvert
+    private boolean alreadyQueuedForThisOpen = false;
+
+    // File d'attente des slots à récupérer, traités petit à petit
+    private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
 
     @Override
     public void onInitializeClient() {
@@ -74,28 +82,31 @@ public class AutolootClient implements ClientModInitializer {
             );
         }
 
-        // Si aucun coffre/inventaire n'est ouvert, on réinitialise et on s'arrête là
+        // Si aucun coffre/inventaire n'est ouvert, on réinitialise tout et on s'arrête là
         if (!(client.currentScreen instanceof HandledScreen<?>)) {
-            alreadyGrabbedForThisOpen = false;
+            alreadyQueuedForThisOpen = false;
+            pendingGrabSlots.clear();
             return;
         }
 
         // Si l'option est activée et qu'on vient d'ouvrir un coffre/tonneau Lootr,
-        // on récupère automatiquement les objets déjà possédés (une seule fois par ouverture)
-        if (autolootEnabled && currentContainerIsLootr && !alreadyGrabbedForThisOpen) {
-            grabMatchingItems(client, client.player.currentScreenHandler);
-            alreadyGrabbedForThisOpen = true;
+        // on prépare la liste des objets à récupérer (une seule fois par ouverture)
+        if (autolootEnabled && currentContainerIsLootr && !alreadyQueuedForThisOpen) {
+            queueMatchingItems(client, client.player.currentScreenHandler);
+            alreadyQueuedForThisOpen = true;
         }
+
+        // On traite la file d'attente petit à petit, quelques slots par tick seulement
+        processGrabQueue(client);
     }
 
-    private void grabMatchingItems(MinecraftClient client, ScreenHandler handler) {
+    private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
             return;
         }
 
         int containerSize = containerHandler.getInventory().size();
         var playerInventory = client.player.getInventory();
-        int grabbed = 0;
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
@@ -112,20 +123,36 @@ public class AutolootClient implements ClientModInitializer {
             }
 
             if (alreadyOwned) {
-                // QUICK_MOVE = le même comportement qu'un shift-clic : prend tout le stack
-                client.interactionManager.clickSlot(
-                        containerHandler.syncId,
-                        i,
-                        0,
-                        SlotActionType.QUICK_MOVE,
-                        client.player
-                );
-                grabbed++;
+                pendingGrabSlots.add(i);
             }
         }
 
-        if (grabbed > 0) {
-            client.player.sendMessage(Text.translatable("message.autoloot.grabbed", grabbed), true);
+        if (!pendingGrabSlots.isEmpty()) {
+            client.player.sendMessage(Text.translatable("message.autoloot.grabbed", pendingGrabSlots.size()), true);
+        }
+    }
+
+    private void processGrabQueue(MinecraftClient client) {
+        if (pendingGrabSlots.isEmpty()) {
+            return;
+        }
+        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) {
+            pendingGrabSlots.clear();
+            return;
+        }
+
+        int sent = 0;
+        while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
+            int slotIndex = pendingGrabSlots.poll();
+            // QUICK_MOVE = le même comportement qu'un shift-clic : prend tout le stack
+            client.interactionManager.clickSlot(
+                    containerHandler.syncId,
+                    slotIndex,
+                    0,
+                    SlotActionType.QUICK_MOVE,
+                    client.player
+            );
+            sent++;
         }
     }
 }
