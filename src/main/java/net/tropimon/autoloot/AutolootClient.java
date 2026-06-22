@@ -48,9 +48,14 @@ public class AutolootClient implements ClientModInitializer {
                 if (state == 0) {
                     long handle = client.getWindow().getHandle();
                     
-                    // ACCÈS CORRIGÉ : Utilisation des méthodes pour obtenir les coordonnées
-                    int x = screen.getX() + screen.getBackgroundWidth() - 30; 
-                    int y = screen.getY() + 10; 
+                    // ON UTILISE LA LARGEUR/HAUTEUR DE L'ÉCRAN POUR TROUVER LE CENTRE
+                    // Et on décale vers le haut à droite du GUI
+                    int centerX = client.getWindow().getScaledWidth() / 2;
+                    int centerY = client.getWindow().getScaledHeight() / 2;
+                    
+                    // Ces valeurs sont une estimation standard pour un coffre normal (176x166)
+                    int x = centerX + 80; 
+                    int y = centerY - 80; 
                     
                     GLFW.glfwSetCursorPos(handle, (double)x, (double)y);
                     
