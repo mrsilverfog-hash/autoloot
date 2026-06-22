@@ -3,123 +3,207 @@ package net.tropimon.autoloot;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
+import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
-import java.lang.reflect.Field;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.List;
 
 public class AutolootClient implements ClientModInitializer {
 
+    private static final String LOOTR_NAMESPACE = "lootr";
+    private static final int SCAN_DELAY_TICKS = 5;
+    private static final int CLICKS_PER_TICK = 2;
+    private static final int VERIFY_DELAY_TICKS = 4;
+    private static final int MAX_ATTEMPTS = 4;
+
     private KeyBinding toggleKey;
-    private boolean autolootEnabled = true; 
-    private int state = 0; // 0: Attente, 1: Pause initialisation, 2: Clic Z, 3: Pause Tri, 4: Aspiration, 5: Fini
-    private int timer = 0;
+    private boolean autolootEnabled = false;
+    private boolean currentContainerIsLootr = false;
+    private boolean alreadyQueuedForThisOpen = false;
+    private boolean screenJustOpened = false;
+    private int ticksWaited = 0;
+
+    private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
+    private final List<PendingVerify> verifying = new ArrayList<>();
+
+    private static class PendingVerify {
+        final int slotIndex;
+        int ticksLeft;
+        int attemptsLeft;
+
+        PendingVerify(int slotIndex) {
+            this.slotIndex = slotIndex;
+            this.ticksLeft = VERIFY_DELAY_TICKS;
+            this.attemptsLeft = MAX_ATTEMPTS;
+        }
+    }
 
     @Override
     public void onInitializeClient() {
-        // Raccourci clavier sur la touche 'V' pour activer/désactiver au besoin
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.autoloot.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.autoloot"
+                "key.autoloot.toggle",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_UNKNOWN,
+                "key.categories.autoloot"
         ));
+
+        UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+            Identifier blockId = Registries.BLOCK.getId(
+                    world.getBlockState(hitResult.getBlockPos()).getBlock()
+            );
+            currentContainerIsLootr = blockId.getNamespace().equals(LOOTR_NAMESPACE)
+                    && (blockId.getPath().equals("lootr_chest") || blockId.getPath().equals("lootr_barrel"));
+            return ActionResult.PASS;
+        });
+
         ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
     }
 
     private void onClientTick(MinecraftClient client) {
-        if (client.player == null) return;
+        if (client.player == null) {
+            return;
+        }
 
         while (toggleKey.wasPressed()) {
             autolootEnabled = !autolootEnabled;
-            client.player.sendMessage(Text.literal("[Autoloot] " + (autolootEnabled ? "Activé" : "Désactivé")), true);
-            state = 0;
+            client.player.sendMessage(
+                    Text.translatable(autolootEnabled
+                            ? "message.autoloot.enabled"
+                            : "message.autoloot.disabled"),
+                    true
+            );
         }
 
-        if (!autolootEnabled) return;
+        if (!(client.currentScreen instanceof HandledScreen<?>)) {
+            alreadyQueuedForThisOpen = false;
+            screenJustOpened = false;
+            ticksWaited = 0;
+            pendingGrabSlots.clear();
+            verifying.clear();
+            return;
+        }
 
-        if (client.currentScreen instanceof HandledScreen<?> screen) {
-            String className = screen.getScreenHandler().getClass().getName().toLowerCase();
-            
-            // FILTRE STRICT : Uniquement les conteneurs du mod Lootr
-            if (className.contains("lootr")) {
-                
-                // Étape 1 : On attend 5 ticks que l'interface se charge complètement
-                if (state == 0) {
-                    timer = 5;
-                    state = 1;
-                } 
-                else if (state == 1) {
-                    if (--timer <= 0) state = 2;
-                }
-                // Étape 2 : Clic virtuel sur le bouton Z
-                else if (state == 2) {
-                    try {
-                        // Utilisation de la réflexion pour contourner les restrictions de compilation 'protected'
-                        Field xField = HandledScreen.class.getDeclaredField("x");
-                        xField.setAccessible(true);
-                        int guiX = xField.getInt(screen);
-
-                        Field yField = HandledScreen.class.getDeclaredField("y");
-                        yField.setAccessible(true);
-                        int guiY = yField.getInt(screen);
-
-                        Field widthField = HandledScreen.class.getDeclaredField("backgroundWidth");
-                        widthField.setAccessible(true);
-                        int bgWidth = widthField.getInt(screen);
-
-                        // Positionnement horizontal et vertical du bouton Z dans l'interface
-                        double clickX = guiX + bgWidth - 23; 
-                        double clickY = guiY + 5; 
-
-                        // Envoi d'un événement de clic gauche direct à l'interface de Minecraft
-                        screen.mouseClicked(clickX, clickY, 0); 
-                        
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                    
-                    state = 3;
-                    timer = 10; // Pause de 10 ticks (0.5s) pour laisser le serveur trier les objets
-                } 
-                // Étape 3 : Attente de la validation du tri par le serveur
-                else if (state == 3) {
-                    if (--timer <= 0) state = 4;
-                } 
-                // Étape 4 : Aspiration intelligente
-                else if (state == 4) {
-                    var container = screen.getScreenHandler();
-                    var playerInv = client.player.getInventory();
-                    boolean itemMoved = false;
-
-                    for (int i = 0; i < container.slots.size(); i++) {
-                        if (i >= 27) break; // Ne pas toucher aux objets de notre propre inventaire
-
-                        ItemStack stack = container.getSlot(i).getStack();
-                        if (stack.isEmpty()) continue;
-                        
-                        // Si l'objet du coffre existe déjà dans notre inventaire, on le prend
-                        for (int j = 0; j < playerInv.size(); j++) {
-                            if (!playerInv.getStack(j).isEmpty() && playerInv.getStack(j).getItem() == stack.getItem()) {
-                                client.interactionManager.clickSlot(container.syncId, i, 0, SlotActionType.QUICK_MOVE, client.player);
-                                itemMoved = true;
-                                break;
-                            }
-                        }
-                        if (itemMoved) return; // Un seul objet traité par tick pour éviter d'être déconnecté
-                    }
-                    
-                    // Si plus aucun objet ne correspond après un scan complet, l'action est terminée
-                    if (!itemMoved) {
-                        state = 5; 
-                    }
+        if (!alreadyQueuedForThisOpen) {
+            if (!screenJustOpened) {
+                screenJustOpened = true;
+                ticksWaited = 0;
+            } else {
+                ticksWaited++;
+                if (autolootEnabled && currentContainerIsLootr && ticksWaited >= SCAN_DELAY_TICKS) {
+                    queueMatchingItems(client, client.player.currentScreenHandler);
+                    alreadyQueuedForThisOpen = true;
                 }
             }
-        } else {
-            state = 0; // Réinitialisation automatique dès que le coffre est fermé
+        }
+
+        if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) {
+            return;
+        }
+
+        sendNewClicks(client, containerHandler);
+        checkVerifications(client, containerHandler);
+    }
+
+    private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
+        if (!(handler instanceof GenericContainerScreenHandler containerHandler)) {
+            return;
+        }
+
+        int containerSize = containerHandler.getInventory().size();
+        var playerInventory = client.player.getInventory();
+
+        for (int i = 0; i < containerSize; i++) {
+            ItemStack containerStack = containerHandler.getSlot(i).getStack();
+            if (containerStack.isEmpty()) {
+                continue;
+            }
+
+            boolean alreadyOwned = false;
+            for (ItemStack invStack : playerInventory.main) {
+                if (!invStack.isEmpty() && invStack.getItem() == containerStack.getItem()) {
+                    alreadyOwned = true;
+                    break;
+                }
+            }
+
+            if (alreadyOwned) {
+                pendingGrabSlots.add(i);
+            }
+        }
+
+        if (!pendingGrabSlots.isEmpty()) {
+            client.player.sendMessage(Text.translatable("message.autoloot.grabbed", pendingGrabSlots.size()), true);
+        }
+    }
+
+    private void sendNewClicks(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
+        int sent = 0;
+        while (!pendingGrabSlots.isEmpty() && sent < CLICKS_PER_TICK) {
+            int slotIndex = pendingGrabSlots.poll();
+
+            // --- DEBUG TEMPORAIRE ---
+            Slot slotObj = containerHandler.getSlot(slotIndex);
+            client.player.sendMessage(
+                    Text.literal("[Autoloot debug] index liste=" + slotIndex
+                            + " | slot.id=" + slotObj.id
+                            + " | egal=" + (slotObj.id == slotIndex)),
+                    false
+            );
+            // --- FIN DEBUG ---
+
+            client.interactionManager.clickSlot(
+                    containerHandler.syncId, slotObj.id, 0, SlotActionType.QUICK_MOVE, client.player
+            );
+            verifying.add(new PendingVerify(slotIndex));
+            sent++;
+        }
+    }
+
+    private void checkVerifications(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
+        Iterator<PendingVerify> it = verifying.iterator();
+        while (it.hasNext()) {
+            PendingVerify entry = it.next();
+            entry.ticksLeft--;
+            if (entry.ticksLeft > 0) {
+                continue;
+            }
+
+            ItemStack stillThere = containerHandler.getSlot(entry.slotIndex).getStack();
+            if (stillThere.isEmpty()) {
+                it.remove();
+                continue;
+            }
+
+            if (entry.attemptsLeft > 0) {
+                entry.attemptsLeft--;
+                entry.ticksLeft = VERIFY_DELAY_TICKS;
+                Slot slotObj = containerHandler.getSlot(entry.slotIndex);
+                client.interactionManager.clickSlot(
+                        containerHandler.syncId, slotObj.id, 0, SlotActionType.QUICK_MOVE, client.player
+                );
+            } else {
+                client.player.sendMessage(
+                        Text.literal("[Autoloot] Impossible de récupérer le slot " + entry.slotIndex + " après plusieurs essais"),
+                        false
+                );
+                it.remove();
+            }
         }
     }
 }
