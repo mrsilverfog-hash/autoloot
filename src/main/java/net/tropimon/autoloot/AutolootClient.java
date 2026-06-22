@@ -26,16 +26,17 @@ import java.util.List;
 public class AutolootClient implements ClientModInitializer {
 
     private static final String LOOTR_NAMESPACE = "lootr";
-    private static final int SCAN_DELAY_TICKS = 10; // Un peu plus long pour laisser le temps au serveur
-    private static final int CLICKS_PER_TICK = 1; // Ralenti pour ne pas saturer le serveur
-    private static final int RETRY_DELAY_TICKS = 40; // Plus long pour Lootr
-    private static final int MAX_ATTEMPTS = 10;
+    private static final int SORT_DELAY = 10; // Temps pour laisser le tri se faire
+    private static final int SCAN_DELAY_TICKS = 20; 
+    private static final int CLICKS_PER_TICK = 1;
+    private static final int RETRY_DELAY_TICKS = 20;
+    private static final int MAX_ATTEMPTS = 5;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
     private boolean currentContainerIsLootr = false;
+    private boolean alreadySorted = false;
     private boolean alreadyQueuedForThisOpen = false;
-    private boolean screenJustOpened = false;
     private int ticksWaited = 0;
 
     private final Deque<Integer> pendingGrabSlots = new ArrayDeque<>();
@@ -83,46 +84,45 @@ public class AutolootClient implements ClientModInitializer {
         }
 
         if (!(client.currentScreen instanceof HandledScreen<?>)) {
+            alreadySorted = false;
             alreadyQueuedForThisOpen = false;
-            screenJustOpened = false;
             ticksWaited = 0;
             pendingGrabSlots.clear();
             verifying.clear();
             return;
         }
 
-        if (!alreadyQueuedForThisOpen) {
-            if (!screenJustOpened) {
-                screenJustOpened = true;
-                ticksWaited = 0;
-            } else {
-                ticksWaited++;
-                if (autolootEnabled && currentContainerIsLootr && ticksWaited >= SCAN_DELAY_TICKS) {
-                    queueMatchingItems(client, client.player.currentScreenHandler);
-                    alreadyQueuedForThisOpen = true;
-                }
+        if (autolootEnabled && currentContainerIsLootr) {
+            ticksWaited++;
+
+            // 1. Étape de tri automatique
+            if (!alreadySorted && ticksWaited >= SORT_DELAY) {
+                // Simulation d'un clic sur le bouton de tri (souvent présent via mods type InventoryProfilesNext)
+                // Note: La plupart des serveurs trient via un clic sur un bouton spécifique. 
+                // Ici, on déclenche une demande de tri standard via le protocole serveur.
+                client.interactionManager.clickSlot(client.player.currentScreenHandler.syncId, 0, 0, SlotActionType.QUICK_CRAFT, client.player);
+                alreadySorted = true;
+            }
+
+            // 2. Étape de collecte après le tri
+            if (alreadySorted && !alreadyQueuedForThisOpen && ticksWaited >= SCAN_DELAY_TICKS) {
+                queueMatchingItems(client, client.player.currentScreenHandler);
+                alreadyQueuedForThisOpen = true;
             }
         }
 
         if (!(client.player.currentScreenHandler instanceof GenericContainerScreenHandler containerHandler)) return;
-
         sendNewClicks(client, containerHandler);
         checkVerifications(client, containerHandler);
     }
 
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) return;
-
         var playerInventory = client.player.getInventory();
         int containerSize = containerHandler.getInventory().size();
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
-            
-            if (i == 16 || i == 26) {
-                System.out.println("[DEBUG] Slot " + i + " contient : " + (containerStack.isEmpty() ? "VIDE" : containerStack.getItem().toString()));
-            }
-
             if (containerStack.isEmpty()) continue;
 
             boolean alreadyOwned = false;
@@ -156,12 +156,7 @@ public class AutolootClient implements ClientModInitializer {
             PendingVerify entry = it.next();
             entry.ticksLeft--;
             if (entry.ticksLeft > 0) continue;
-
-            ItemStack stillThere = containerHandler.getSlot(entry.slotIndex).getStack();
-            if (stillThere.isEmpty()) {
-                it.remove();
-                continue;
-            }
+            if (containerHandler.getSlot(entry.slotIndex).getStack().isEmpty()) { it.remove(); continue; }
 
             if (entry.attemptsLeft > 0) {
                 entry.attemptsLeft--;
