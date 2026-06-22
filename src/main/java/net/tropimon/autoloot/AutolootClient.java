@@ -28,9 +28,8 @@ public class AutolootClient implements ClientModInitializer {
     private static final String LOOTR_NAMESPACE = "lootr";
     private static final int SCAN_DELAY_TICKS = 5;
     private static final int CLICKS_PER_TICK = 2;
-    private static final int VERIFY_DELAY_TICKS = 4;
-    private static final int RETRY_DELAY_TICKS = 20; // Plus long pour Lootr
-    private static final int MAX_ATTEMPTS = 5; // Un peu plus d'essais
+    private static final int RETRY_DELAY_TICKS = 20;
+    private static final int MAX_ATTEMPTS = 5;
 
     private KeyBinding toggleKey;
     private boolean autolootEnabled = false;
@@ -49,7 +48,7 @@ public class AutolootClient implements ClientModInitializer {
 
         PendingVerify(int slotIndex) {
             this.slotIndex = slotIndex;
-            this.ticksLeft = VERIFY_DELAY_TICKS;
+            this.ticksLeft = RETRY_DELAY_TICKS;
             this.attemptsLeft = MAX_ATTEMPTS;
         }
     }
@@ -114,10 +113,13 @@ public class AutolootClient implements ClientModInitializer {
     private void queueMatchingItems(MinecraftClient client, net.minecraft.screen.ScreenHandler handler) {
         if (!(handler instanceof GenericContainerScreenHandler containerHandler)) return;
 
-        int containerSize = containerHandler.getInventory().size();
         var playerInventory = client.player.getInventory();
+        List<Integer> prioritySlots = new ArrayList<>();
+        List<Integer> otherSlots = new ArrayList<>();
 
-        for (int i = 0; i < containerSize; i++) {
+        for (int i = 0; i < 27; i++) {
+            if (i >= containerHandler.getSlotCount()) break;
+
             ItemStack containerStack = containerHandler.getSlot(i).getStack();
             if (containerStack.isEmpty()) continue;
 
@@ -130,10 +132,19 @@ public class AutolootClient implements ClientModInitializer {
                 }
             }
 
-            if (alreadyOwned && !pendingGrabSlots.contains(i)) {
-                pendingGrabSlots.add(i);
+            if (alreadyOwned) {
+                // On met les slots 16 et 26 en priorité
+                if (i == 16 || i == 26) {
+                    prioritySlots.add(i);
+                } else {
+                    otherSlots.add(i);
+                }
             }
         }
+        
+        // On ajoute d'abord les prioritaires, puis le reste dans la Deque
+        pendingGrabSlots.addAll(prioritySlots);
+        pendingGrabSlots.addAll(otherSlots);
     }
 
     private void sendNewClicks(MinecraftClient client, GenericContainerScreenHandler containerHandler) {
